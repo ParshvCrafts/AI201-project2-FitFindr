@@ -282,20 +282,64 @@ $ python app.py ask '...'
 
 **The three tools, tested one at a time**
 
+`search_listings`, a match and then its empty case:
+
 ```
 $ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+[{'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'description': 'Vintage-style bootleg tee with faded graphic. Slightly boxy fit. 100% cotton, soft and worn-in.', 'category': 'tops', 'style_tags': ['graphic tee', 'vintage', 'grunge', 'streetwear', 'band tee'], 'size': 'L', 'condition': 'good', 'price': 24.0, 'colors': ['black'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_002', 'title': 'Y2K Baby Tee — Butterfly Print', 'description': 'Super cute early 2000s baby tee with butterfly graphic. Fitted crop length. Tag says medium but fits like a small.', 'category': 'tops', 'style_tags': ['y2k', 'vintage', 'graphic tee', 'cottagecore'], 'size': 'S/M', 'condition': 'excellent', 'price': 18.0, 'colors': ['white', 'pink', 'purple'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_033', 'title': 'Vintage Band Tee — Faded Grey', 'description': 'Faded grey band-style tee with distressed graphic. Crew neck. Fits boxy. Well-loved but no holes or major damage.', 'category': 'tops', 'style_tags': ['vintage', 'grunge', 'band tee', 'graphic tee', 'streetwear'], 'size': 'L', 'condition': 'fair', 'price': 19.0, 'colors': ['grey', 'charcoal'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_017', 'title': 'Mesh Long-Sleeve Top — Black', 'description': 'Sheer black mesh long-sleeve. Great for layering under a graphic tee or over a bralette. Stretchy material, fits true to size.', 'category': 'tops', 'style_tags': ['y2k', 'grunge', 'goth', 'layering'], 'size': 'S/M', 'condition': 'excellent', 'price': 15.0, 'colors': ['black'], 'brand': None, 'platform': 'depop'}]
 
+$ python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
+[]
 ```
 
-```
-$ python -c "from tools import suggest_outfit; ..."
+Four results, all $30 or less, the two with "graphic" and "tee" in the title
+first. The mesh top is last because it only matches through its description
+("great for layering under a graphic tee"), which is the lowest weight.
+
+`suggest_outfit`, with the example wardrobe and then an empty one:
 
 ```
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Outfit 1
+Vintage Levi's 501 Jeans — Medium Wash, White ribbed tank top, Vintage black denim jacket, Black combat boots, Black crossbody bag
+Why it works: Double denim creates a timeless look, and the fitted tank balances the slightly cropped jacket.
+
+Outfit 2
+Vintage Levi's 501 Jeans — Medium Wash, Oversized grey crewneck sweatshirt, Chunky white sneakers, Brown leather belt, Black crossbody bag
+Why it works: Tucking the classic 501s into the belt anchors the huge sweatshirt for an easy streetwear vibe.
+
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_empty_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_empty_wardrobe()))"
+Outfit one
+Pieces: oversized white button-down shirt, brown leather belt, white canvas sneakers
+Why it works: A crisp shirt contrasts the casual denim for an effortless, classic look.
+
+Outfit two
+Pieces: black cropped hoodie, vintage leather jacket, chunky black boots
+Why it works: Layering black pieces leans into a cool streetwear vibe and highlights the medium wash.
+```
+
+`create_fit_card`, three runs on the same item, then the empty case:
 
 ```
-$ python -c "from tools import create_fit_card; ..."
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+Nothing beats the broken-in feel of vintage Levi's, and scoring these for just $38 on depop was an absolute win. I’m styling them with crisp white sneakers for that effortlessly cool, everyday streetwear look. Can't wait to wear this combo on repeat all season. 👖👟
 
+$ (same command again)
+Just scored these vintage Levi's 501s on depop for only $38 and I am obsessed. The medium wash is chef's kiss and they fit just right. Can't wait to style them with my favorite crisp white sneakers for that effortless everyday look. 👖✨
+
+$ (same command a third time)
+I'm officially obsessed with these vintage Levi's I just scored on depop for $38. The medium wash and broken-in knees give them that effortless, I-just-raided-my-cool-uncle's-closet energy. Throwing them on with fresh white sneakers for the ultimate casual weekend fit. 👖✨
+
+$ python -c "from tools import create_fit_card; print(repr(create_fit_card('   ', {'id':'x'})))"
+"Can't write a fit card without an outfit suggestion."
 ```
+
+Three different captions, each with `$38` and `depop` once. They differ
+because `create_fit_card` passes `cache=False` and `TEMPERATURE` is 0.9.
+
+**Unit tests.** `python -m unittest discover -s tests` runs the offline test
+suite. The model is patched out, so it costs no quota and gives the same
+result every time.
 
 ---
 
