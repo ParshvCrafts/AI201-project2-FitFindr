@@ -81,24 +81,98 @@ writing any of this, because the search can only filter on fields that exist.
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 listings by price and size, keeps the ones
+  that match more than half of the description's words, and returns them best
+  match first. No model call.
+- **Inputs:** `description` (str), `size` (str or None, None skips the size
+  filter), `max_price` (float or None, inclusive, None skips the price filter).
+- **Returns:** A `list[dict]` of at most 10 listing dicts
+  (`config.SEARCH_RESULT_LIMIT`), each the unchanged record from
+  `data/listings.json` with all 11 fields: `id`, `title`, `description`,
+  `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`,
+  `platform`. Sorted by score (highest first), then price (cheapest first),
+  then `id`, so the same input always gives the same order.
+- **When it has nothing:** `[]`, an empty list. Never None, never an
+  exception. That covers no keyword match, filters that remove everything, and
+  a description with no real words in it.
+
+How matching works, so someone else could rebuild it:
+
+- **Words.** Lowercase, split on anything that isn't a letter or digit, drop
+  one-letter pieces and filler words (`a`, `for`, `looking`, `size`, `under`
+  ...), and cut a trailing `s` off words longer than three letters that don't
+  end in `ss` (`jeans` becomes `jean`, `dress` stays `dress`). Listing text
+  goes through the same steps, so both sides agree.
+- **Majority rule.** A listing is kept only if it matches *more than half* of
+  the query's words. With 2 words both must match. With 3, two must. I picked
+  this over "any word" because of the `vintage` problem above: "vintage
+  ballgown" should find nothing, not a pair of Levi's.
+- **Score.** Each matched word counts once, at the weight of the best field it
+  appears in: title 3, style tag / category / brand 2, color / description 1.
+- **Size rule.** The listing's size is split into tokens on `/`, spaces, and
+  parentheses. A letter size (`XS` to `XXXL`) has to equal one of the tokens,
+  so `M` matches `S/M` and `M/L` but `L` never matches `XL`. A number compares
+  as a number against shoe sizes and waist sizes: `8` matches `US 8` but not
+  `US 8.5`, and `30` matches `W30 L30` (the `L30` is inseam, so it's ignored).
+  `W30` only matches waist 30. Any listing whose size contains `One Size`
+  matches every size request, because a belt or a bucket hat fits anyone.
+- **Price rule.** `price <= max_price`.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
+- **What it does:** Asks the model for one or two outfits built around the
+  new item. With a wardrobe, the outfits use pieces the user owns, named the
+  way the wardrobe names them. With an empty wardrobe, it asks for general
+  styling ideas instead.
+- **Inputs:** `new_item` (dict, a listing dict from `search_listings`),
+  `wardrobe` (dict, `{"items": [...]}`, where `items` may be empty).
+- **Returns:** A non-empty `str` of outfit suggestions, plain text, a few short
+  lines.
 - **When it has nothing:**
+  - Empty wardrobe (`items` is `[]`, missing, or the wardrobe is None): still
+    returns a non-empty string of general styling advice. Not an error.
+  - `new_item` is None or `{}`: returns the fixed string
+    `"No item was given, so there is nothing to style."` without calling the
+    model.
+  - The model replies with nothing: returns a short fallback built from the
+    item's own fields, so the string is never empty.
+  - The model can't be reached: raises `ModelUnavailable` from `generate.py`.
+    The tool doesn't hide that; handling it in the loop is a unit 4 job.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
+- **What it does:** Asks the model for a short caption someone would actually
+  post about the find, mentioning the price and the platform once each.
+- **Inputs:** `outfit` (str, the text `suggest_outfit` returned), `new_item`
+  (dict, the same listing dict).
+- **Returns:** A `str` caption, two to four sentences, no hashtags. The price
+  is written like `$24` (or `$24.50` when there are cents). Calls the model
+  with the cache turned off (`cache=False`) so the same item gives a different
+  caption each run. `TEMPERATURE` stays at 0.9.
 - **When it has nothing:**
+  - `outfit` is empty, whitespace, or not a string: returns the fixed string
+    `"Can't write a fit card without an outfit suggestion."`, no model call.
+  - `new_item` is None or `{}`: returns
+    `"Can't write a fit card without an item."`, no model call.
+  - The model replies with nothing: returns a two-sentence fallback caption
+    built from the title, price, and platform.
+
+### `compare_price` (stretch, fourth tool)
+
+- **What it does:** Compares the chosen item's price with every other listing
+  in the same category. No model call.
+- **Inputs:** `item` (dict, a listing dict), `listings` (list[dict] or None,
+  None means load all listings).
+- **Returns:** A `dict` with `category` (str), `compared_with` (int, how many
+  other listings in that category), `median_price` (float), `cheaper_than`
+  (int, how many of those cost more than the item), `verdict` (`"below"`,
+  `"at"`, or `"above"` the median), and `summary` (one readable sentence, e.g.
+  `"$24 is below the $25 median for 14 other tops. It's cheaper than 8 of
+  them."`).
+- **When it has nothing:** No other listings in the category (or `item` is
+  None / `{}`): the same dict shape with `compared_with` 0, `median_price`
+  None, `cheaper_than` 0, `verdict` None, and a `summary` saying there was
+  nothing to compare with. Never raises for that.
 
 ---
 
@@ -115,13 +189,80 @@ writing any of this, because the search can only filter on fields that exist.
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in
+`session["error"]` that says which filter to change (built by re-running the
+search with each filter dropped, see below) and stop. `suggest_outfit` and
+`create_fit_card` are never called. Otherwise take the first result as
+`session["selected_item"]` and go on to `compare_price`, then
+`suggest_outfit`, then `create_fit_card`.
 
-**Where it lives:** `agent.py::run_agent`
+**Second branch (stretch):** If the query has no description words left after
+the price and size are pulled out (for example just `'under $30'`), put a
+message in `session["error"]` asking what kind of item they want and stop
+before calling `search_listings` at all. This is a different condition from
+the empty search: the empty search means "we looked and nothing fits", this
+one means "there was nothing to look for".
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**Where it lives:** `agent.py::run_agent`. The stop messages come from
+`agent.py::describe_empty_search` and `agent.py::describe_vague_query`.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**How the query is parsed:** Regex, in `agent.py::parse_query`. Price comes
+from phrases like `under $30`, `below 30`, `less than $30`, `max $30`,
+`up to $30`, `$30 or less`, or a bare `$30`. Size comes from `size M`,
+`sz 8`, `size W30`, `in M`, or a standalone `XS` / `XL` / `XXL`. Whatever is
+left is the description. I chose regex over asking the model because it's
+free, it gives the same answer every time (criterion 2 asks for 5 of 5), and
+I can unit test it. The cost is that odd phrasings like "nothing over thirty
+bucks" won't be read as a price.
+
+**What the empty-search message says:** It names the filters that were used
+and, for each one, what dropping it would do, with real counts. For example:
+if the words match listings but none are cheap enough, it says how many match
+and what the cheapest one costs. If no listing has the words at all, it says
+that and suggests words that do appear in the data.
+
+**What moves through the session, in order:**
+
+1. `query`, `wardrobe` (set by `new_session`)
+2. `parsed`: `{"description", "size", "max_price"}` from `parse_query`
+3. `search_results`: the list `search_listings` returned
+4. `selected_item`: `search_results[0]`
+5. `price_check`: the dict `compare_price` returned (stretch)
+6. `outfit_suggestion`: read `selected_item` and `wardrobe` back out of the
+   session, call `suggest_outfit`, store the string
+7. `fit_card`: read `outfit_suggestion` and `selected_item` back out of the
+   session, call `create_fit_card`, store the string
+8. `tool_log`: every tool call in order, with the `id` of the item each tool
+   actually received. This is how criterion 3 checks that the item search
+   found is the same one the later tools got.
+9. `error`: None on the happy path, the stop message on either branch.
+
+---
+
+## Stretch Features
+
+I'm adding all three stretch features. I wrote them down here before building
+any of them.
+
+1. **A fourth tool, `compare_price`.** Tells you whether the item is a good
+   price for its category. Spec is in the Tool Inventory above.
+2. **A second branch.** A query with no item words stops before the search.
+   Rule is in the Planning Loop above.
+3. **Style memory.** The wardrobe is saved to `data/my_wardrobe.json` (that
+   file is gitignored, it's personal data) and `ask` loads it automatically
+   on the next run. Commands:
+   - `python app.py wardrobe add 'black wide-leg jeans' --category bottoms --colors black --tags minimal`
+   - `python app.py wardrobe show`
+   - `python app.py wardrobe remove w_003`
+   - `python app.py wardrobe clear` (forgets the saved wardrobe, `ask` goes
+     back to the example one)
+   - `python app.py ask '...' --keep` saves the item the agent found into the
+     wardrobe, so the next outfit can use it.
+
+   `ask` picks a wardrobe in this order: `--empty-wardrobe` if given, then the
+   saved wardrobe if the file exists, then the example wardrobe.
+   `run_eval.py` and `serve.py` are not affected, they pick their wardrobe
+   explicitly.
 
 ---
 
