@@ -39,8 +39,15 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
+You type what you're hunting for in plain words, like
+`'vintage graphic tee under $30'` or `'platform sneakers size 8'`, and FitFindr
+searches 40 secondhand listings from Depop, ThredUp and Poshmark for the best
+match within your size and budget. For the item it picks, you get how its
+price compares to similar listings, one or two outfits built from clothes you
+already own, and a short caption you could actually post. If nothing fits, it
+stops before styling anything and tells you which part of your search to
+change (the words, the size, or the budget), with real numbers from the
+listings.
 
 
 ---
@@ -276,8 +283,78 @@ any of them.
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Vintage Band Tee — Faded Grey — $19.0 on depop
+  Price:    $19 is below the $21.50 median for 14 other tops. It's cheaper than 9 of them.
+
+  Outfit:   Outfit 1: Vintage Band Tee — Faded Grey, Baggy straight-leg jeans, dark wash, Black combat boots, Black crossbody bag
+Why it works: The boxy tee tucked into high-waisted jeans with chunky boots nails an effortless grunge streetwear look.
+
+Outfit 2: Vintage Band Tee — Faded Grey, Wide-leg khaki trousers, Vintage black denim jacket, Chunky white sneakers
+Why it works: Pairing the edgy graphic tee with clean khaki trousers and a cropped jacket creates a cool high-low balance.
+
+  Fit card: Found this perfectly faded grey band tee and I’m obsessed with how it looks thrown on with wide-leg khaki trousers and chunky white sneakers. It’s also super sick dressed down with baggy dark wash jeans and combat boots for that effortless grunge streetwear vibe. Snagged this gem on depop for just $19 and I honestly won't be taking it off. 🎸✨
+
+1 model calls this session, 1 served from cache, 308 prompt + 79 output tokens
+```
+
+The session behind that run, printed from `agent.py::run_agent`, shows the
+same item id at every step:
+
+```
+selected: lst_033 Vintage Band Tee — Faded Grey
+first result id: lst_033
+tool_log: [{'tool': 'search_listings', 'item_id': None}, {'tool': 'compare_price', 'item_id': 'lst_033'}, {'tool': 'suggest_outfit', 'item_id': 'lst_033'}, {'tool': 'create_fit_card', 'item_id': 'lst_033'}]
+```
+
+The same command with a query the data can't match. It stops after the
+search, and the usage line shows no model calls, so neither model tool ran:
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+  Nothing matched "designer ballgown" in size XXS under $5. No listing mentions "designer" or "ballgown". Try a different word for the item, like tee, jeans, jacket, blazer, sneakers or dress. Your filters are too tight as well: no listing costs under $5 (the cheapest is $12), and no listing comes in size XXS, so leave the size out.
+
+0 model calls this session
+```
+
+And the second branch, a query with no item in it. It stops before searching:
+
+```
+$ python app.py ask 'under $30'
+
+  I couldn't tell what kind of item you want from "under $30". I got a budget of $30, but no item. Add the item itself, for example 'graphic tee under $30' or 'denim jacket size M'.
+
+0 model calls this session
+```
+
+Style memory across two runs. The first run keeps what it found, then I add a
+pair of jeans by hand, and the next query's outfits use both saved pieces
+instead of the example wardrobe. (For this run I pointed `AI201_WARDROBE` at a
+scratch file, `fitfindr_keep.json`, so it wouldn't touch my real wardrobe. By
+default the file is `data/my_wardrobe.json`.)
+
+```
+$ python app.py ask 'platform sneakers size 8' --keep
+  ...
+  Kept:     saved "Platform Sneakers — White Chunky Sole" to your wardrobe as w_001.
+            Started a saved wardrobe at fitfindr_keep.json. From now
+            on `ask` uses it instead of the example wardrobe. Add the clothes
+            you own with `python app.py wardrobe add`.
+
+$ python app.py wardrobe add 'black wide-leg jeans' --category bottoms --colors black --tags minimal
+Saved w_002: black wide-leg jeans (bottoms).
+
+$ python app.py ask 'vintage graphic tee under $30'
+(using your saved wardrobe, 2 items)
+
+  Found:    Vintage Band Tee — Faded Grey — $19.0 on depop
+  Price:    $19 is below the $21.50 median for 14 other tops. It's cheaper than 9 of them.
+
+  Outfit:   Outfit 1: Vintage Band Tee — Faded Grey, black wide-leg jeans, Platform Sneakers — White Chunky Sole
+Why it works: The boxy tee and chunky sneakers nail that effortless grunge streetwear vibe with the sleek black jeans.
+  ...
 ```
 
 **The three tools, tested one at a time**
@@ -352,17 +429,52 @@ result every time.
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
-**Moment 1**
+**Moment 1: attacking my criteria**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I pasted my five criteria into Claude and asked: "For
+  each one, tell me exactly how you would test it using only what the
+  sentence says. Don't suggest improvements." I also asked it to quote any
+  phrase where it had to guess what I meant.
+- *What came back:* It could test most of them, but criterion 4 had three
+  guesses in it. It couldn't tell if "5 of 5 tries" meant five queries or five
+  runs of each query. It didn't know where the price came from. And it didn't
+  know how to count `...` or `?!` as sentences. For criterion 3 it didn't know
+  what a `tool_log` entry looked like, so it couldn't find the right one.
+- *What I changed:* I rewrote criterion 4 so each of the five queries runs
+  once and each run is one try. I also added a **How to check** line under all
+  five criteria. Those lines name the session fields to read, the shape of a
+  `tool_log` entry (`{"tool", "item_id"}`), and an exact sentence-counting
+  rule. Criteria 1 and 2 were given to us, so I left their sentences alone and
+  only added the check underneath.
 
-**Moment 2**
+**Moment 2: reading my empty-search message cold**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude four versions of my empty-search message,
+  one per kind of failure, and asked what it would try next after reading
+  each one, knowing nothing about the app. I told it to say so if the honest
+  answer was "no idea", and not to rewrite them.
+- *What came back:* The price-only message and the "vintage ballgown" one were
+  clear. For `'platform sneakers size 6 under $20'` it said a person would
+  mostly have no idea what to try. "Starting at $48" made it sound like there
+  were several listings when there was one. "The size and the budget together
+  rule everything out" didn't say whether changing just one would help. It
+  also called "nothing in the data" developer-speak, said "Only One Size items
+  would fit" was unclear, and pointed out that "drop or swap the word" never
+  says what to swap it for.
+- *What I changed:* I rewrote `agent.py::describe_empty_search`. The both
+  filters case now says "Changing just one filter won't help" and names the
+  single closest listing ("size US 8 at $48"). A single match is described as
+  one listing. "The data" became "no listing costs under $5 (the cheapest is
+  $12)". The missing-word case now lists real item words to swap in. I added
+  `tests/test_agent_messages.py` so none of those can slip back.
+
+**Other ways I used it.** I had Claude help draft the code from my spec, and
+I made the design calls myself (majority-word matching, the token size rule,
+regex parsing, the cache-off fit card). I also had it write three of the four
+test files from my README spec *without* showing it my code, so the tests
+check what I wrote down, not what I happened to build. All 88 tool tests
+passed against the implementation on the first run, which told me the spec
+and the code agreed.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
