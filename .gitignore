@@ -15,6 +15,10 @@ env/
 # Cached model responses
 .cache/
 
+# Style memory: the user's own saved wardrobe, personal data
+data/my_wardrobe.json
+data/.wardrobe-*.tmp
+
 # OS noise
 .DS_Store
 Thumbs.db

@@ -5,6 +5,11 @@ FitFindr — command line.
     python app.py ask 'vintage graphic tee under $30, size M'
     python app.py ask                     keep asking until you quit
     python app.py ask --empty-wardrobe    run as a user with nothing saved
+    python app.py ask '...' --keep        save the item it finds to your wardrobe
+    python app.py wardrobe show           your saved wardrobe (style memory)
+    python app.py wardrobe add 'black wide-leg jeans' --category bottoms --colors black
+    python app.py wardrobe remove w_003
+    python app.py wardrobe clear          forget it, go back to the example wardrobe
     python app.py listings                browse the data  (Milestone 1)
     python app.py fields                  what fields a listing has
     python app.py examples                queries worth trying, including a dud
@@ -104,7 +109,7 @@ def cmd_examples(args):
     )
 
 
-def _ask_one(query, wardrobe, use_trace):
+def _ask_one(query, wardrobe, use_trace, keep=False):
     from agent import run_agent
     import trace as trace_module
 
@@ -125,6 +130,8 @@ def _ask_one(query, wardrobe, use_trace):
         print(f"  Outfit:   {session['outfit_suggestion']}")
         print()
         print(f"  Fit card: {session['fit_card']}")
+        if keep:
+            _keep(session["selected_item"])
     print()
 
     if use_trace:
@@ -137,17 +144,48 @@ def _ask_one(query, wardrobe, use_trace):
     return session
 
 
-def cmd_ask(args):
-    from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
-    import generate
+def _keep(item):
+    from utils import wardrobe_store
 
-    wardrobe = get_empty_wardrobe() if args.empty_wardrobe else get_example_wardrobe()
+    first = not wardrobe_store.has_saved_wardrobe()
+    saved, added = wardrobe_store.add_listing(item)
+    print()
+    if added:
+        print(f"  Kept:     saved \"{saved['name']}\" to your wardrobe as {saved['id']}.")
+    else:
+        print(f"  Kept:     \"{saved['name']}\" is already in your wardrobe as {saved['id']}.")
+    if first:
+        print(
+            f"            Started a saved wardrobe at {config.WARDROBE_PATH.name}. From now\n"
+            "            on `ask` uses it instead of the example wardrobe. Add the clothes\n"
+            "            you own with `python app.py wardrobe add`."
+        )
+
+
+def _pick_wardrobe(args):
+    """--empty-wardrobe, then the saved wardrobe if there is one, then the example."""
+    from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
+    from utils import wardrobe_store
+
     if args.empty_wardrobe:
         print("(running with an empty wardrobe)")
+        return get_empty_wardrobe()
+    saved = wardrobe_store.load_saved_wardrobe()
+    if saved is not None:
+        print(f"(using your saved wardrobe, {len(saved['items'])} items)")
+        return saved
+    return get_example_wardrobe()
+
+
+def cmd_ask(args):
+    from utils import wardrobe_store
+    import generate
+
+    wardrobe = _pick_wardrobe(args)
 
     try:
         if args.query:
-            _ask_one(args.query, wardrobe, args.trace)
+            _ask_one(args.query, wardrobe, args.trace, args.keep)
         else:
             print("Ask for something, or press Enter on an empty line to quit.\n")
             while True:
@@ -158,9 +196,54 @@ def cmd_ask(args):
                     break
                 if not query:
                     break
-                _ask_one(query, wardrobe, args.trace)
+                _ask_one(query, wardrobe, args.trace, args.keep)
+                if args.keep and not args.empty_wardrobe:
+                    # The next question should see what was just kept.
+                    wardrobe = wardrobe_store.load_saved_wardrobe() or wardrobe
     finally:
         print(generate.usage())
+
+
+def cmd_wardrobe(args):
+    from utils import wardrobe_store
+
+    if args.action == "add":
+        item = wardrobe_store.add_item(
+            args.name, args.category,
+            colors=_split(args.colors), style_tags=_split(args.tags), notes=args.notes,
+        )
+        print(f"Saved {item['id']}: {item['name']} ({item['category']}).")
+    elif args.action == "remove":
+        if wardrobe_store.remove_item(args.item_id):
+            print(f"Removed {args.item_id}.")
+        else:
+            print(f"There's no {args.item_id} in your saved wardrobe. "
+                  "`python app.py wardrobe show` lists the ids.")
+    elif args.action == "clear":
+        if wardrobe_store.clear_saved_wardrobe():
+            print("Forgot your saved wardrobe. `ask` is back to the example wardrobe.")
+        else:
+            print("There was no saved wardrobe to clear.")
+    else:  # show
+        wardrobe = wardrobe_store.load_saved_wardrobe()
+        if wardrobe is None:
+            print("No saved wardrobe yet, so `ask` uses the example wardrobe.\n"
+                  "Add a piece: python app.py wardrobe add 'black wide-leg jeans' "
+                  "--category bottoms --colors black")
+            return
+        if not wardrobe["items"]:
+            print("Your saved wardrobe is empty.")
+            return
+        print(f"Your saved wardrobe ({len(wardrobe['items'])} items):\n")
+        for item in wardrobe["items"]:
+            details = [item.get("category", "")] + [", ".join(item.get("colors") or [])]
+            details += [", ".join(item.get("style_tags") or [])]
+            print(f"  {item.get('id', '?'):6} {item.get('name', '?')}  "
+                  f"({'; '.join(d for d in details if d)})")
+
+
+def _split(text):
+    return [part.strip() for part in (text or "").split(",") if part.strip()]
 
 
 def build_parser():
@@ -191,7 +274,27 @@ def build_parser():
         action="store_true",
         help="run as a user with nothing saved — one of unit 4's failure modes",
     )
+    p_ask.add_argument(
+        "--keep",
+        action="store_true",
+        help="save the item it finds to your wardrobe (style memory)",
+    )
     p_ask.set_defaults(func=cmd_ask)
+
+    p_wardrobe = sub.add_parser("wardrobe", help="your saved wardrobe (style memory)")
+    w_sub = p_wardrobe.add_subparsers(dest="action", required=True)
+    w_add = w_sub.add_parser("add", help="add a piece you own")
+    w_add.add_argument("name")
+    w_add.add_argument("--category", required=True,
+                       choices=("tops", "bottoms", "outerwear", "shoes", "accessories"))
+    w_add.add_argument("--colors", default="", help="comma separated, e.g. black,white")
+    w_add.add_argument("--tags", default="", help="comma separated style tags")
+    w_add.add_argument("--notes", default=None)
+    w_sub.add_parser("show", help="list what's saved")
+    w_remove = w_sub.add_parser("remove", help="remove a piece by id")
+    w_remove.add_argument("item_id")
+    w_sub.add_parser("clear", help="forget the saved wardrobe")
+    p_wardrobe.set_defaults(func=cmd_wardrobe)
 
     return parser
 

@@ -93,3 +93,8 @@ CACHE_DIR = ROOT / ".cache"
 
 DATA_DIR = ROOT / "data"
 RESULTS_DIR = ROOT / "results"
+
+# Style memory (stretch): where the user's own wardrobe is kept between runs.
+# Gitignored, because it's personal data. Tests point this somewhere else with
+# the AI201_WARDROBE environment variable so they never touch the real file.
+WARDROBE_PATH = Path(os.getenv("AI201_WARDROBE", str(DATA_DIR / "my_wardrobe.json")))

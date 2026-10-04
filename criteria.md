@@ -65,7 +65,7 @@ from the data, not just "no results".
 For each of the 5 matching queries listed under `python app.py examples`,
 `session["selected_item"]["id"]` equals `session["search_results"][0]["id"]`,
 and the `item_id` that `session["tool_log"]` records for `suggest_outfit` and
-for `create_fit_card` is that same id — 5 of 5 tries (one run of each query is
+for `create_fit_card` is that same id, in 5 of 5 tries (one run of each query is
 one try).
 
 **Why this target:** The item gets from search to the later tools by plain
@@ -93,7 +93,7 @@ Run each of the 5 matching queries listed under `python app.py examples` once
 (each run is one try). A try passes when its fit card contains the selected
 item's price written with a dollar sign (`$24` and `$24.00` both count),
 contains the item's platform name (any capitalization), and is 2 to 4
-sentences long — in at least 4 of 5 tries.
+sentences long, in at least 4 of 5 tries.
 
 **Why this target:** The caption comes from the model at temperature 0.9 with
 the cache off, so the wording changes every run, and my prompt can ask for the
@@ -118,7 +118,7 @@ For each of these 5 queries: `'vintage graphic tee under $30'`,
 `'silk slip dress in midi length under $40'`, `'denim jacket under $50'`,
 `'jeans under $35'`, `'sneakers below $25'`, `session["parsed"]["max_price"]`
 equals the number in the query, `session["search_results"]` is not empty, and
-every listing in it has `price` at most that number — 5 of 5 tries (one run
+every listing in it has `price` at most that number, in 5 of 5 tries (one run
 of each query is one try).
 
 **Why this target:** This is regex and a comparison, no model. A miss means
