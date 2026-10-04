@@ -57,6 +57,28 @@
      on, and if you don't decide it here you'll discover it as a crash in
      Milestone 5. -->
 
+### What the data holds
+
+I read six listings end to end (`python app.py listings --full -n 6`) before
+writing any of this, because the search can only filter on fields that exist.
+
+- **A listing has 11 fields:** `id`, `title`, `description`, `category`,
+  `style_tags` (list), `size`, `condition`, `price` (float), `colors` (list),
+  `brand` (str or None), `platform`.
+- **40 listings.** Categories are tops, bottoms, outerwear, shoes, accessories.
+  Platforms are depop, thredUp, poshmark. Prices run from $12 to $75.
+- **`brand` is None on 32 of 40.** Nothing I write can assume a brand exists.
+- **Sizes are messy.** There are 22 different spellings: `M`, `S/M`, `M/L`,
+  `L/XL`, `XL (oversized)`, `W30 L30`, `W28`, `US 8`, `US 8.5`, `One Size`,
+  `One Size (adjustable)`. A plain substring test breaks on these (`"l" in "xl"`
+  is True, so is `"s" in "us 9"`).
+- **`vintage` is a tag on 29 of 40 listings.** If one shared word were enough
+  to count as a match, almost any query with "vintage" in it would return
+  something, even when the actual item doesn't exist.
+- **A wardrobe** is `{"items": [...]}`. Each item has `id`, `name`,
+  `category`, `colors`, `style_tags`, and optional `notes`. An empty wardrobe
+  is `{"items": []}`, same shape, nothing in the list.
+
 ### `search_listings`
 
 - **What it does:**
