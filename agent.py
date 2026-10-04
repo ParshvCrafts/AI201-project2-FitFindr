@@ -58,7 +58,8 @@ def new_session(query: str, wardrobe: dict) -> dict:
 
 # ── query parsing ─────────────────────────────────────────────────────────────
 
-_AMOUNT = r"(\d+(?:\.\d{1,2})?)"
+# "30", "24.50", "1,000", "1,250.50"
+_AMOUNT = r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)"
 
 # Tried in order. The first one that matches is the price, and its words are
 # cut out of the description.
@@ -80,13 +81,16 @@ _SIZE_PATTERNS = [
     # "size M", "in size M", "sz 8", "size W30", "size US 8.5", "size medium"
     re.compile(
         r"(?:\bin\s+(?:an?\s+)?)?\b(?:size|sz)\s*:?\s*("
-        r"(?:us\s*)?w?\s*\d+(?:\.\d)?|one\s+size|extra\s+large|small|medium|large|"
+        r"(?:us\s*)?w?\s*\d+(?:\.\d)?(?:\s*l\s*\d+)?|one\s+size|extra\s+large|small|medium|large|"
         + _LETTERS + r")\b",
         re.IGNORECASE,
     ),
-    # "in M", "in a medium"
+    # "in M", "in a medium". A size word only counts at the end of a clause,
+    # so "jeans in medium wash" and "dress in small floral print" stay
+    # descriptions.
     re.compile(
-        r"\bin\s+(?:an?\s+)?(" + _LETTERS + r"|extra\s+large|small|medium|large)\b",
+        r"\bin\s+(?:an?\s+)?(" + _LETTERS + r"\b|(?:extra\s+large|small|medium|large)"
+        r"(?=\s*(?:[,.;!?]|$)))",
         re.IGNORECASE,
     ),
     # Sizes that can't be mistaken for anything else, standing alone: "XL hoodie"
@@ -133,7 +137,7 @@ def parse_query(query: str) -> dict:
     for pattern in _PRICE_PATTERNS:
         match = pattern.search(text)
         if match:
-            max_price = float(match.group(1))
+            max_price = float(match.group(1).replace(",", ""))
             text = _cut(text, match)
             break
 
@@ -206,7 +210,18 @@ def describe_empty_search(parsed: dict) -> str:
         found = [t for t in terms if find_matches(t)]
         missing = [t for t in terms if t not in found]
         quoted = " or ".join(f"\"{t}\"" for t in missing)
-        if found:
+        if found and not missing:
+            # Every word is in some listing, just never enough of them in the
+            # same one ("denim dress": denim jackets, a silk dress).
+            counts = ", ".join(
+                f"\"{t}\" finds {_n_listings(len(find_matches(t)))}" for t in found
+            )
+            lines.append(
+                f"Each word is in the listings, but no single listing has most of "
+                f"them. On its own, {counts}. Search for one of those, or swap a "
+                f"word for an item word like {item_words}."
+            )
+        elif found:
             lines.append(
                 f"No listing mentions {quoted}. \"{found[0]}\" on its own finds "
                 f"{_n_listings(len(find_matches(found[0])))}, so drop \"{missing[0]}\" "

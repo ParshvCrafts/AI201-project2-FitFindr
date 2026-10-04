@@ -3,6 +3,7 @@
 Every test works in its own temp dir. The real data/my_wardrobe.json is never
 touched; setUpModule/tearDownModule verify that.
 """
+import codecs
 import contextlib
 import io
 import json
@@ -319,6 +320,16 @@ class TestWardrobeCommands(AppCase):
     def test_bad_category_rejected_by_parser(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             app.build_parser().parse_args(["wardrobe", "add", "x", "--category", "hats"])
+
+
+class BomTolerance(unittest.TestCase):
+    """Notepad and PowerShell's Out-File save UTF-8 with a byte order mark."""
+
+    def test_file_with_utf8_bom_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "w.json"
+            path.write_bytes(codecs.BOM_UTF8 + b'{"items": [{"id": "w_001", "name": "tee"}]}')
+            self.assertEqual(ws.load_saved_wardrobe(path)["items"][0]["name"], "tee")
 
 
 if __name__ == "__main__":

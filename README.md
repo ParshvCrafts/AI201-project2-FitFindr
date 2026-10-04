@@ -216,8 +216,10 @@ one means "there was nothing to look for".
 **How the query is parsed:** Regex, in `agent.py::parse_query`. Price comes
 from phrases like `under $30`, `below 30`, `less than $30`, `max $30`,
 `up to $30`, `$30 or less`, or a bare `$30`. Size comes from `size M`,
-`sz 8`, `size W30`, `in M`, or a standalone `XS` / `XL` / `XXL`. Whatever is
-left is the description. I chose regex over asking the model because it's
+`sz 8`, `size W30`, `size W30 L32`, `in M`, or a standalone `XS` / `XL` /
+`XXL`. A size word after "in" only counts at the end of a clause, so
+`'tee in a medium'` is size M but `'jeans in medium wash'` is a description.
+Prices can have commas (`under $1,000`). Whatever is left is the description. I chose regex over asking the model because it's
 free, it gives the same answer every time (criterion 2 asks for 5 of 5), and
 I can unit test it. The cost is that odd phrasings like "nothing over thirty
 bucks" won't be read as a price.
@@ -475,6 +477,18 @@ test files from my README spec *without* showing it my code, so the tests
 check what I wrote down, not what I happened to build. All 88 tool tests
 passed against the implementation on the first run, which told me the spec
 and the code agreed.
+
+Before pushing, I had a fresh Claude session review the whole diff and try to
+break it. It found a real crash: `'denim dress'` raised `IndexError` inside
+`describe_empty_search`. Both words are in the listings, just never in the
+same one, and my message code assumed at least one word would be missing
+everywhere. It also caught `'jeans in medium wash'` being read as size M,
+`'size W30 L32'` leaving `L32` in the description, `$1,000` being read as $1,
+and a saved wardrobe with a byte order mark failing to load. I wrote a failing
+test for each one first, then fixed them. One thing it flagged I left on
+purpose: `ModelUnavailable` isn't caught in the loop yet, because that's unit
+4's job. A bad key still prints a one-line error from `app.py`, not a stack
+trace.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 

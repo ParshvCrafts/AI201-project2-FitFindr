@@ -43,7 +43,9 @@ def load_saved_wardrobe(path=None) -> dict | None:
     if not p.is_file():
         return None
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
+        # utf-8-sig also reads files saved with a byte order mark, which is
+        # what Notepad and PowerShell's Out-File write on Windows.
+        data = json.loads(p.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WardrobeFileError(
             f"Couldn't read your saved wardrobe at {p} ({exc}). Fix the file, or "

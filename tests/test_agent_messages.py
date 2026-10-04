@@ -88,5 +88,47 @@ class FillerIsCut(unittest.TestCase):
         )
 
 
+class ReviewFindings(unittest.TestCase):
+    """Bugs an independent review found and reproduced. Each failed before its fix."""
+
+    def test_words_that_each_exist_but_never_together_do_not_crash(self):
+        # 'denim' and 'dress' each match listings, but no listing has both.
+        for query in ("denim dress", "leather sneakers", "blue tee blazer"):
+            with self.subTest(query=query):
+                text = message(query)
+                self.assertIn("no single listing", text)
+                self.assertIn("on its own", text.lower())
+
+    def test_run_agent_stops_with_a_message_instead_of_raising(self):
+        from unittest.mock import patch
+        from agent import run_agent
+        from utils.data_loader import get_example_wardrobe
+        with patch("tools.generate") as model:
+            session = run_agent("denim dress", get_example_wardrobe())
+        self.assertIsNotNone(session["error"])
+        self.assertIsNone(session["fit_card"])
+        model.assert_not_called()
+
+    def test_size_word_describing_the_item_is_not_a_size(self):
+        self.assertEqual(parse_query("jeans in medium wash"),
+                         {"description": "jeans in medium wash", "size": None, "max_price": None})
+        self.assertIsNone(parse_query("dress in small floral print")["size"])
+        # At the end of the query it still is a size.
+        self.assertEqual(parse_query("tee in a medium")["size"], "M")
+        self.assertEqual(parse_query("hoodie in large, under $30")["size"], "L")
+
+    def test_inseam_is_part_of_the_size_not_the_description(self):
+        parsed = parse_query("jeans size W30 L32")
+        self.assertEqual(parsed["description"], "jeans")
+        self.assertEqual(parsed["size"], "W30 L32")
+        from tools import search_listings
+        self.assertEqual([x["id"] for x in search_listings("jeans", parsed["size"])], ["lst_001"])
+
+    def test_thousands_separator_in_a_price(self):
+        self.assertEqual(parse_query("jacket under $1,000"),
+                         {"description": "jacket", "size": None, "max_price": 1000.0})
+        self.assertEqual(parse_query("coat $1,250.50 or less")["max_price"], 1250.5)
+
+
 if __name__ == "__main__":
     unittest.main()
